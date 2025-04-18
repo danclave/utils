@@ -6,12 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/rs/zerolog/log"
 )
 
 func SkipIff(t *testing.T, condition bool) {
@@ -34,43 +34,56 @@ type TestDataStore struct {
 // TEST DATA
 // ================================================
 
-func Load[T any](dir string, filename string) T {
+func Load[T any](filename string) T {
 	var target T
 
-	inPath := "testData/" + dir + "/input/" + filename + ".json"
+	dir := "testdata/" + previousFuncName(2)
+	inPath := "/input/" + dir + filename + ".json"
 
 	file, err := os.Open(inPath)
-	if err != nil {
-		panic(err)
-	}
+	CrashOn(err, "failed to open "+inPath)
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&target)
+	CrashOn(err, "failed to decode data")
 	return target
 }
 
+func Init() {
+	inputDir := "testdata/" + previousFuncName(2) + "/input"
+	err := os.MkdirAll(inputDir, os.ModePerm)
+	CrashOn(err, "failed to make directory")
+
+	outputDir := "testdata/" + previousFuncName(2) + "/output"
+	err = os.MkdirAll(outputDir, os.ModePerm)
+	CrashOn(err, "failed to make output directory")
+}
+
 func Save(dir string, data any, filename string) error {
-	outputDir := "testData/" + dir + "/output"
+	outputDir := "testdata/" + previousFuncName(2) + "/output"
 
 	err := os.MkdirAll(outputDir, os.ModePerm)
-	if err != nil {
-		log.Error().Err(err).Str("dir", outputDir).Msg("Failed to create directories")
-		return err
-	}
+	CrashOn(err, "failed to make directory")
 
 	outPath := outputDir + "/" + filename + ".json"
 
 	file, err := os.Create(outPath)
-	if err != nil {
-		log.Fatal().Err(err).Str("path", outPath).Msg("Failed to create file")
-	}
+	CrashOn(err, "failed to create "+outPath)
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 
 	return encoder.Encode(data)
+}
+
+func previousFuncName(backSteps int) string {
+	pc, _, _, _ := runtime.Caller(backSteps)
+	full := runtime.FuncForPC(pc).Name() // e.g., "main.myFunction"
+	parts := strings.Split(full, ".")
+	name := parts[len(parts)-1] // "myFunction"
+	return name
 }
 
 // ================================================
@@ -81,29 +94,24 @@ func Save(dir string, data any, filename string) error {
 // It uses the calling test function's name as the filename if none is given.
 func RecordOrAssert[T any](t *testing.T, filename string, got T) {
 	t.Helper()
-
-	if filename == "" {
-		filename = GetFuncName()
-	}
-
-	dir := "testdata"
-	CrashOn(os.MkdirAll(dir, 0755))
+	outputDir := "testdata/" + previousFuncName(2) + "/output"
+	CrashOn(os.MkdirAll(outputDir, 0755), "failed to make testData dir")
 
 	var expected T
-	err := fromFile(dir, filename, &expected)
+	err := fromFile(outputDir, filename, &expected)
 	if err != nil {
-		CrashOn(toFile(dir, filename, got))
+		CrashOn(toFile(outputDir, filename, got), "failed to load file")
 		return
 	}
 
 	normalize := func(v any) any {
 		encoded, err := json.Marshal(v)
-		CrashOn(err)
+		CrashOn(err, "failed to marshal data")
 
 		var decoded any
 		dec := json.NewDecoder(bytes.NewReader(encoded))
 		dec.UseNumber()
-		CrashOn(dec.Decode(&decoded))
+		CrashOn(dec.Decode(&decoded), "failed to decode data")
 		return normalizeJSON(decoded)
 	}
 
@@ -111,12 +119,12 @@ func RecordOrAssert[T any](t *testing.T, filename string, got T) {
 	expectedNorm := normalize(expected)
 
 	actualFilename := strings.TrimSuffix(filename, filepath.Ext(filename)) + "_actual"
-	actualPath := filepath.Join(dir, actualFilename)
+	actualPath := filepath.Join(outputDir, actualFilename)
 
 	if !reflect.DeepEqual(gotNorm, expectedNorm) {
 		diff := cmp.Diff(expectedNorm, gotNorm)
 		t.Errorf("Mismatch with testdata %s:\nDiff:\n%s", filename, diff)
-		CrashOn(toFile(dir, actualFilename, got))
+		CrashOn(toFile(outputDir, actualFilename, got), "failed to save data")
 	} else {
 		_ = os.Remove(actualPath + filepath.Ext(filename))
 	}
