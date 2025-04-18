@@ -60,7 +60,7 @@ func Init() {
 	CrashOn(err, "failed to make output directory")
 }
 
-func Save(dir string, data any, filename string) error {
+func Save(data any, filename string) error {
 	outputDir := "testdata/" + previousFuncName(2) + "/output"
 
 	err := os.MkdirAll(outputDir, os.ModePerm)
