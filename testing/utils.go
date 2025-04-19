@@ -30,7 +30,7 @@ func DoOrDie[T any](val T, err error) T {
 
 func CrashOn(err error, message string) {
 	if err != nil {
-		fmt.Printf(message)
+		fmt.Printf("%s", message)
 		log.Fatal().Err(err).Msg("Crashed due to error")
 		panic("Crashed due to error")
 	}
